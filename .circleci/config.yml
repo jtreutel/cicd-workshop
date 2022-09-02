@@ -3,6 +3,23 @@ version: 2.1
 orbs:
   node: circleci/node@5.0.2
   docker: circleci/docker@2.1.1
+  snyk: snyk/snyk@1.2.3
+  terraform: circleci/terraform@3.0.0
+
+commands:
+  install_doctl:
+    parameters:
+      version:
+        default: "1.79.0"
+        type: string
+    steps:
+      - run:
+          name: Install doctl client
+          command: |
+            cd ~
+            wget https://github.com/digitalocean/doctl/releases/download/v<<parameters.version>>/doctl-<<parameters.version>>-linux-amd64.tar.gz
+            tar xf ~/doctl-<<parameters.version>>-linux-amd64.tar.gz
+            sudo mv ~/doctl /usr/local/bin
 
 jobs:
   build_and_test:
@@ -36,16 +53,63 @@ jobs:
         - docker/build:
             image: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME
             tag: 0.1.<< pipeline.number >>
+        - snyk/scan:
+            fail-on-issues: false
+            monitor-on-build: false
+            target-file: "Dockerfile"
+            docker-image-name: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME:0.1.<< pipeline.number >>
+            project: ${CIRCLE_PROJECT_REPONAME}/${CIRCLE_BRANCH}-app
         - docker/push:
             image: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME
             tag: 0.1.<< pipeline.number >>
+  dependency_vulnerability_scan:
+    docker:
+      - image: cimg/node:16.16.0
+    steps:
+      - checkout
+      - node/install-packages
+      - snyk/scan:
+          fail-on-issues: true
+          monitor-on-build: false
+create_do_k8s_cluster:
+    docker:
+      - image: cimg/node:16.16.0
+    steps:
+      - checkout
+      - install_doctl:
+          version: "1.78.0"
+      - run:
+          name: Create .terraformrc file locally
+          command: echo "credentials \"app.terraform.io\" {token = \"$TF_CLOUD_KEY\"}" > $HOME/.terraformrc
+      - terraform/install:
+          terraform_version: "1.0.6"
+          arch: "amd64"
+          os: "linux"
+      - terraform/init:
+          path: ./terraform/do_create_k8s
+      - run:
+          name: Create K8s Cluster on DigitalOcean
+          command: |
+            export CLUSTER_NAME=${CIRCLE_PROJECT_REPONAME}
+            export DO_K8S_SLUG_VER="$(doctl kubernetes options versions \
+              -o json -t $DIGITAL_OCEAN_TOKEN | jq -r '.[0] | .slug')"
+
+            terraform -chdir=./terraform/do_create_k8s apply \
+              -var do_token=$DIGITAL_OCEAN_TOKEN \
+              -var cluster_name=$CLUSTER_NAME \
+              -var do_k8s_slug_ver=$DO_K8S_SLUG_VER \
+              -auto-approve
+
       
 workflows:
   test_scan_deploy:
       jobs:
         - build_and_test
-        - build_docker_image:
-            context:
-              - cicd-workshop
-            requires:
-              - build_and_test
+      - dependency_vulnerability_scan:
+          context:
+            - cicd-workshop
+      - build_docker_image:
+          context:
+            - cicd-workshop
+          requires:
+            - build_and_test
