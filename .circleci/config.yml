@@ -103,13 +103,19 @@ create_do_k8s_cluster:
       
 workflows:
   test_scan_deploy:
-      jobs:
-        - build_and_test
-        - dependency_vulnerability_scan:
-            context:
-              - cicd-workshop
-        - build_docker_image:
-            context:
-              - cicd-workshop
-            requires:
-              - build_and_test
+    jobs:
+      - build_and_test
+      - dependency_vulnerability_scan:
+          context:
+            - cicd-workshop
+      - build_docker_image:
+          context:
+            - cicd-workshop
+      - create_do_k8s_cluster:
+          requires:
+            - dependency_vulnerability_scan
+            - build_docker_image
+            - build_and_test
+          context:
+            - cicd-workshop
+            
