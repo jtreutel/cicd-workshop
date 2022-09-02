@@ -4,6 +4,7 @@ version: 2.1
 
 orbs: 
   node: circleci/node@5.0.2
+  docker: circleci/docker@2.1.1
 
 # Define a job to be invoked later in a workflow.
 # See: https://circleci.com/docs/2.0/configuration-reference/#jobs
@@ -39,6 +40,20 @@ jobs:
           path: test-results
       - store_artifacts:
           path: test-results
+  build_docker_image:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - checkout
+      - setup_remote_docker:
+          docker_layer_caching: false
+      - docker/check
+      - docker/build:
+          image: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME
+          tag: 0.1.<< pipeline.number >>
+      - docker/push:
+          image: $DOCKER_LOGIN/$CIRCLE_PROJECT_REPONAME
+          tag: 0.1.<< pipeline.number >>
 
 # Invoke jobs via workflows
 # See: https://circleci.com/docs/2.0/configuration-reference/#workflows
@@ -49,3 +64,8 @@ workflows:
   test_scan_deploy:
     jobs:
       - build_and_test
+      - build_docker_image:
+          context:
+            - cicd-workshop
+          requires:
+            - build_and_test
