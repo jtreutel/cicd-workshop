@@ -105,11 +105,11 @@ workflows:
   test_scan_deploy:
       jobs:
         - build_and_test
-      - dependency_vulnerability_scan:
-          context:
-            - cicd-workshop
-      - build_docker_image:
-          context:
-            - cicd-workshop
-          requires:
-            - build_and_test
+        - dependency_vulnerability_scan:
+            context:
+              - cicd-workshop
+        - build_docker_image:
+            context:
+              - cicd-workshop
+            requires:
+              - build_and_test
